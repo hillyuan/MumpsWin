@@ -1,4 +1,4 @@
-# MUMPS 5.0.2 CMake file
+# MUMPS 5.1.2 CMake file
 # - all UPPER case "libraries" compile .obj files without linking
 # WARNING: Some native build systems may not like targets that have only object files,
 # so consider adding at least one real source file to any target that references $<TARGET_OBJECTS:objlib>
@@ -6,7 +6,7 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
 
 PROJECT(Mumps C Fortran)
-SET(VERSION 5.0.2)
+SET(VERSION 5.1.2)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 
@@ -25,14 +25,10 @@ ELSEIF (ARITHMETIC MATCHES "complex-double")
 ENDIF ()
 MESSAGE(STATUS "Arithmetic set to '${ARITHMETIC}'. Added '${ARITH_PREFIX}' prefix...")
 
-if(NOT CMAKE_DEBUG_POSTFIX)
-    set(CMAKE_DEBUG_POSTFIX "_d")
-endif()
 
-
-OPTION(BUILD_EXAMPLES "Build MUMPS examples" ON)
+OPTION(BUILD_EXAMPLES "Build MUMPS examples" OFF)
 OPTION(ENABLE_OPENMP "Enable OpenMP multithreading." ON)
-OPTION(BUILD_SHARED_LIBS "Build shared libraries." OFF)
+OPTION(BUILD_SHARED_LIBS "Build shared libraries." ON)
 
 
 IF(CMAKE_SIZEOF_VOID_P MATCHES 4)
@@ -88,7 +84,6 @@ SET(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH_BKP}) # restore original CMAKE_LIBRA
 if (NOT BLAS_FOUND)
 	SET(BLAS_LIBRARIES_USER "" CACHE PATH "Locate BLAS library directory") # let the user specifies its own BLAS library
 	MARK_AS_ADVANCED(CLEAR BLAS_LIBRARIES_USER)
-    SET(BUILD_EXAMPLES OFF)
 else()
 	MESSAGE(STATUS "Linking BLAS library: ${BLAS_LIBRARIES}")
 	MARK_AS_ADVANCED(FORCE BLAS_LIBRARIES_USER)
@@ -99,14 +94,8 @@ LINK_DIRECTORIES(${INTEL_LIBRARIES_DIRS})
 
 #################### Compiler and linker flags ####################
 # -O2 optimization flags are already set by generator
-if(${CMAKE_Fortran_COMPILER_ID} STREQUAL "Intel")
-  SET(GENERIC_COMPILER_FLAGS_FORTRAN #aka OPTF
-			"-Dintel_ -fpp")
-elseif(CMAKE_C_COMPILER_ID MATCHES "GNU")
-  SET(GENERIC_COMPILER_FLAGS_FORTRAN
-			"-cpp")
-endif()
-set(CMAKE_FORTRAN_LINK_EXECUTABLE ${CMAKE_Fortran_COMPILER} "<FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS>  -o <TARGET> <LINK_LIBRARIES>")
+SET(GENERIC_COMPILER_FLAGS_FORTRAN #aka OPTF
+			"-MD -Dintel_ -fpp")
 			
 #Get MUMPS version
 FILE(STRINGS "${CMAKE_SOURCE_DIR}/include/${ARITH_PREFIX}mumps_c.h" CMAKE_MUMPS_VERSION REGEX "#define[ ]+MUMPS_VERSION[ ]+\"*\".+\"")
@@ -128,17 +117,17 @@ IF (NOT CMAKE_MUMPS_VERSION_LIST OR
 ENDIF()
 		
 
-#SET(GENERIC_COMPILER_FLAGS_C #aka OPTC
-#			"-MT")
+SET(GENERIC_COMPILER_FLAGS_C #aka OPTC
+			"-MD")
 			
-
+# OpenMP package and compiler flags
 find_package(OpenMP)
-IF (ENABLE_OPENMP AND OPENMP_FOUND)
+if (ENABLE_OPENMP AND OPENMP_FOUND)
 	SET(GENERIC_COMPILER_FLAGS_FORTRAN "${GENERIC_COMPILER_FLAGS_FORTRAN} ${OpenMP_Fortran_FLAGS}")
 	SET(GENERIC_COMPILER_FLAGS_C "${GENERIC_COMPILER_FLAGS_C} ${OpenMP_C_FLAGS}")
 	
 	SET(EXCLUDE_IOMP "")
-	IF (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "GNU")
+	if (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "GNU")
 		OPTION(LINK_INTEL_OMP "Let Intel compiler links its own Intel OpenMP library (iomp)" OFF)
 		IF (NOT LINK_INTEL_OMP)
 			SET(EXCLUDE_IOMP "-Wl,--as-needed")
@@ -149,22 +138,24 @@ IF (ENABLE_OPENMP AND OPENMP_FOUND)
 		SET(GENERIC_COMPILER_FLAGS_FORTRAN "${GENERIC_COMPILER_FLAGS_FORTRAN} ${EXCLUDE_IOMP}")
 	ENDIF()
 	
-	IF (MSVC)
+	if (MSVC)
 		SET(COMPILER_DEFS_C "${COMPILER_DEFS_C}" "_OPENMP_NOFORCE_MANIFEST")
 		SET(COMPILER_DEFS_FORTRAN "${COMPILER_DEFS_FORTRAN}" "_OPENMP_NOFORCE_MANIFEST")
 	endif()
 	
 endif()
 
+
+# compiler definitions
 SET(COMPILER_DEFS_C_FORWINDOWS
-			"Add_")
+			"Add_" "_CRT_SECURE_NO_WARNINGS")
 SET(COMPILER_DEFS_FORTRAN #aka CDEF
-			"Add_")
-			
-IF (MSVC)
-	SET(COMPILER_DEFS_C "_CRT_SECURE_NO_WARNINGS")
-	SET(COMPILER_DEFS_FORTRAN ${COMPILER_DEFS_FORTRAN} "_CRT_SECURE_NO_WARNINGS")
-ENDIF(MSVC)
+			"Add_" "_CRT_SECURE_NO_WARNINGS")
+
+SET(COMPILER_DEFS_C #aka CDEFS
+			"Add_" "_CRT_SECURE_NO_WARNINGS")
+SET(COMPILER_DEFS_FORTRAN #aka CDEF
+			"Add_" "_CRT_SECURE_NO_WARNINGS")
 			
 SET(ORDERINGS_COMPILER_FLAGS_FORTRAN #aka ORDERINGSF
 			"-Dpord")
@@ -181,10 +172,11 @@ IF (BUILD_SHARED_LIBS) # can be done also in "mumps_c_compat.h" and "mpi.h"
 	ENDIF()
 	IF (CMAKE_C_COMPILER_ID STREQUAL "GNU")
 		SET(GENERIC_COMPILER_FLAGS_FORTRAN "${GENERIC_COMPILER_FLAGS_FORTRAN}" "-fPIC" "DLLEXPORT")
-		SET(GENERIC_COMPILER_FLAGS_FORTRAN "${GENERIC_COMPILER_FLAGS_FORTRAN}" "-fPIC")
+		SET(GENERIC_COMPILER_FLAGS_C "${GENERIC_COMPILER_FLAGS_CN}" "-fPIC")
 	ENDIF()
 ENDIF()
 			
+		
 #################### Ordering libraries ####################
 # Ordering libraries selection
 SET(USE_METIS FALSE CACHE BOOL "Select if METIS ordering is used")
@@ -229,18 +221,27 @@ SET(PORD_HEAD
 		"${PORD_INCLUDE_DIRS}/space.h"
 		"${PORD_INCLUDE_DIRS}/types.h")
 
-IF (NOT BUILD_SHARED_LIBS)
+IF (BUILD_SHARED_LIBS)
+    ADD_LIBRARY(PORD_C OBJECT
+						${PORD_HEAD}
+						${PORD_SOURCES})
+
+    SET_TARGET_PROPERTIES(PORD_C PROPERTIES
+						COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_C} -c"
+						COMPILE_DEFINITIONS "${COMPILER_DEFS_C}"
+						LINKER_LANGUAGE C)
+
+    TARGET_INCLUDE_DIRECTORIES(PORD_C PUBLIC "${PORD_INCLUDE_DIRS}")
+ELSE()
 	ADD_LIBRARY(libpord STATIC
 							${PORD_SOURCES}
 							${PORD_HEAD})
 
-	SET_TARGET_PROPERTIES(libpord PROPERTIES PREFIX ""
-	                        DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX}
+	SET_TARGET_PROPERTIES(libpord PROPERTIES
 							COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_C}"
 							LINKER_LANGUAGE C)
-    target_compile_options(libpord PRIVATE "/MT$<$<CONFIG:Debug>:d>")
-				
-	TARGET_INCLUDE_DIRECTORIES(libpord PUBLIC	"${PORD_INCLUDE_DIRS}")
+							
+	TARGET_INCLUDE_DIRECTORIES(libpord PUBLIC "${PORD_INCLUDE_DIRS}")
 
 	LIST(APPEND ORDERINGS_LIBRARIES libpord) #aka LORDERINGS #aka LPORDDIR+LPORD
 ENDIF()
@@ -274,7 +275,6 @@ ADD_LIBRARY(LIBMPISEQ_FORTRAN OBJECT
 SET_TARGET_PROPERTIES(LIBMPISEQ_FORTRAN PROPERTIES
 						COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_FORTRAN} -c"
 						LINKER_LANGUAGE FORTRAN)
-target_compile_options(LIBMPISEQ_FORTRAN PRIVATE "/MT$<$<CONFIG:Debug>:d>")
 
 # libseq object files (C)
 ADD_LIBRARY(LIBMPISEQ_C OBJECT
@@ -285,21 +285,21 @@ SET_TARGET_PROPERTIES(LIBMPISEQ_C PROPERTIES
 						COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_C} -c"
 						COMPILE_DEFINITIONS "${COMPILER_DEFS_C}"
 						LINKER_LANGUAGE C)
-target_compile_options(LIBMPISEQ_C PRIVATE "/MT$<$<CONFIG:Debug>:d>")
 
 TARGET_INCLUDE_DIRECTORIES(LIBMPISEQ_C PUBLIC "${LIBSEQ_INCLUDE_DIRS}")
 
 IF (NOT BUILD_SHARED_LIBS)
 	# libseq library
 	ADD_LIBRARY(libmpiseq STATIC
+							${LIBSEQ_HEAD_C}
+							${LIBSEQ_HEAD_FORTRAN}
 							$<TARGET_OBJECTS:LIBMPISEQ_C>
 							$<TARGET_OBJECTS:LIBMPISEQ_FORTRAN>)
-							
-    SET_TARGET_PROPERTIES(libmpiseq PROPERTIES 
-	                       PREFIX "" 
-						   LINKER_LANGUAGE FORTRAN
-                           DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
-    target_compile_options(libmpiseq PRIVATE "/MT$<$<CONFIG:Debug>:d>")
+                            
+    SET_TARGET_PROPERTIES(libmpiseq PROPERTIES
+						LINKER_FLAGS "${GENERIC_COMPILER_FLAGS_C}"
+						COMPILE_DEFINITIONS "${COMPILER_DEFS_C}"
+						LINKER_LANGUAGE C)
 ENDIF()
 
 
@@ -401,7 +401,7 @@ ADD_LIBRARY(MUMPS_COMMON_OBJ_FORTRAN OBJECT
 SET_TARGET_PROPERTIES(MUMPS_COMMON_OBJ_FORTRAN PROPERTIES
 						COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_FORTRAN} ${ORDERINGS_COMPILER_FLAGS_FORTRAN} -c"
 						LINKER_LANGUAGE FORTRAN)
-target_compile_options(MUMPS_COMMON_OBJ_FORTRAN PRIVATE "/MT$<$<CONFIG:Debug>:d>")
+
 TARGET_INCLUDE_DIRECTORIES(MUMPS_COMMON_OBJ_FORTRAN	PUBLIC
 						"${MUMPS_INCLUDE_DIRS}"
 						"${LIBSEQ_INCLUDE_DIRS}")
@@ -411,7 +411,7 @@ ADD_LIBRARY(MUMPS_COMMON_OBJ_C OBJECT
 						${MUMPS_COMMON_OTHER_HEAD} # not sure IF needed
 						${MUMPS_COMMON_OTHER_SRC_C})
 				
-target_compile_options(MUMPS_COMMON_OBJ_C PRIVATE "/MT$<$<CONFIG:Debug>:d>")
+
 SET_TARGET_PROPERTIES(MUMPS_COMMON_OBJ_C PROPERTIES
 						COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_C} ${ORDERINGS_COMPILER_FLAGS_C} -c"
 						COMPILE_DEFINITIONS "${COMPILER_DEFS_C}"
@@ -427,16 +427,16 @@ IF (NOT BUILD_SHARED_LIBS)
 	ADD_LIBRARY(libmumps_common STATIC
 							$<TARGET_OBJECTS:MUMPS_COMMON_OBJ_FORTRAN>
 							$<TARGET_OBJECTS:MUMPS_COMMON_OBJ_C>)
-							
-    SET_TARGET_PROPERTIES(libmumps_common PROPERTIES 
-	                         PREFIX "" 
-	                         DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX}
-							 LINKER_LANGUAGE FORTRAN)
-    target_compile_options(libmumps_common PRIVATE "/MT$<$<CONFIG:Debug>:d>")					
+						
 	TARGET_INCLUDE_DIRECTORIES(libmumps_common	PUBLIC
 							"${MUMPS_INCLUDE_DIRS}"
 							"${LIBSEQ_INCLUDE_DIRS}"
 							"${ORDERINGS_INCLUDE_DIRS}")
+                            
+    SET_TARGET_PROPERTIES(libmumps_common PROPERTIES
+                            LINKER_FLAGS "${GENERIC_COMPILER_FLAGS_C}"
+                            COMPILE_DEFINITIONS "${COMPILER_DEFS_C}"
+                            LINKER_LANGUAGE C)
 
 	TARGET_LINK_LIBRARIES(libmumps_common
 							libpord
@@ -448,7 +448,7 @@ ENDIF()
 
 		
 		
-# Arithmetic-specific MUMPS files
+# Arithmetic-specific MUMPS source files
 SET(${ARITH_PREFIX}MUMPS_SRC #aka OBJS_MOD
 		src/${ARITH_PREFIX}ana_aux_par.F
         src/${ARITH_PREFIX}ana_lr.F
@@ -543,68 +543,44 @@ SET(${ARITH_PREFIX}MUMPS_OTHER_SRC #aka OBJS_OTHER
         src/${ARITH_PREFIX}type3_root.F
 	)
 			
-# Arithmetic-specific MUMPS object files
-ADD_LIBRARY(MUMPS_SPECIFIC_OBJ_FORTRAN OBJECT
-						"${MUMPS_COMMON_OTHER_HEAD}" # not sure IF needed
-						"${${ARITH_PREFIX}MUMPS_SRC}"
-						"${${ARITH_PREFIX}MUMPS_OTHER_SRC}")
-target_compile_options(MUMPS_SPECIFIC_OBJ_FORTRAN PRIVATE "/MT$<$<CONFIG:Debug>:d>")						
-SET_TARGET_PROPERTIES(MUMPS_SPECIFIC_OBJ_FORTRAN PROPERTIES
-						COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_FORTRAN} ${ORDERINGS_COMPILER_FLAGS_FORTRAN} -c"
-						LINKER_LANGUAGE FORTRAN)
-			
-TARGET_INCLUDE_DIRECTORIES(MUMPS_SPECIFIC_OBJ_FORTRAN PUBLIC
-						"${MUMPS_INCLUDE_DIRS}"
-						"${LIBSEQ_INCLUDE_DIRS}") #aka INCSEQ
-							
 
-IF (NOT BUILD_SHARED_LIBS)
-	# Arithmetic-specific MUMPS library
-	ADD_LIBRARY("lib${ARITH_PREFIX}mumps" STATIC
-							$<TARGET_OBJECTS:MUMPS_SPECIFIC_OBJ_FORTRAN>
-							$<TARGET_OBJECTS:MUMPS_COMMON_OBJ_C>)
-							
-    SET_TARGET_PROPERTIES("lib${ARITH_PREFIX}mumps" PROPERTIES 
-	                       PREFIX "" 
-						   DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX}
-						   LINKER_LANGUAGE FORTRAN)
-    target_compile_options("lib${ARITH_PREFIX}mumps" PRIVATE "/MT$<$<CONFIG:Debug>:d>")
-	TARGET_INCLUDE_DIRECTORIES("lib${ARITH_PREFIX}mumps" PUBLIC
-							"${MUMPS_INCLUDE_DIRS}"
-							"${LIBSEQ_INCLUDE_DIRS}") #aka INCSEQ
-						
-	TARGET_LINK_LIBRARIES("lib${ARITH_PREFIX}mumps" 
-							libmumps_common
-							libpord)
-ENDIF()
-		
-						
+
 
 									
 ## Build shared library
 IF (BUILD_SHARED_LIBS)
+    ADD_LIBRARY(MUMPS_SPECIFIC_OBJ_FORTRAN OBJECT
+						"${MUMPS_COMMON_OTHER_HEAD}" # not sure IF needed
+						"${${ARITH_PREFIX}MUMPS_SRC}"
+						"${${ARITH_PREFIX}MUMPS_OTHER_SRC}")
+							
+    SET_TARGET_PROPERTIES(MUMPS_SPECIFIC_OBJ_FORTRAN PROPERTIES
+						COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_FORTRAN} ${ORDERINGS_COMPILER_FLAGS_FORTRAN} -c"
+						LINKER_LANGUAGE FORTRAN)
+			
+    TARGET_INCLUDE_DIRECTORIES(MUMPS_SPECIFIC_OBJ_FORTRAN PUBLIC
+						"${MUMPS_INCLUDE_DIRS}"
+						"${LIBSEQ_INCLUDE_DIRS}") #aka INCSEQ
 						
 	ADD_LIBRARY(lib${ARITH_PREFIX}mumps SHARED
 						$<TARGET_OBJECTS:MUMPS_COMMON_OBJ_FORTRAN>
 						$<TARGET_OBJECTS:MUMPS_COMMON_OBJ_C>
 						$<TARGET_OBJECTS:MUMPS_SPECIFIC_OBJ_FORTRAN>
-						$<TARGET_OBJECTS:MUMPS_COMMON_OBJ_C>
-						${LIBSEQ_HEAD_C}
-						${LIBSEQ_HEAD_FORTRAN}
+                        ${LIBSEQ_HEAD_C}
 						$<TARGET_OBJECTS:LIBMPISEQ_C>
+                        ${LIBSEQ_HEAD_FORTRAN}
 						$<TARGET_OBJECTS:LIBMPISEQ_FORTRAN>
-						${PORD_SOURCES}
 						${PORD_HEAD}
+                        $<TARGET_OBJECTS:PORD_C>
 						)
 						
 	TARGET_LINK_LIBRARIES(lib${ARITH_PREFIX}mumps
                                 "${BLAS_LIBRARIES}" #aka LIBBLAS
                                 )
-    SET_TARGET_PROPERTIES(lib${ARITH_PREFIX}mumps PROPERTIES
-						DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
-    target_compile_options(lib${ARITH_PREFIX}mumps PRIVATE "/MD$<$<CONFIG:Debug>:d>")					
-	# SET_TARGET_PROPERTIES(lib${ARITH_PREFIX}mumps PROPERTIES
-							# LINKER_FLAGS "${GENERIC_COMPILER_FLAGS_C} ${ORDERINGS_COMPILER_FLAGS_C}")
+								
+	SET_TARGET_PROPERTIES(lib${ARITH_PREFIX}mumps PROPERTIES
+					      LINKER_FLAGS "${GENERIC_COMPILER_FLAGS_C} ${ORDERINGS_COMPILER_FLAGS_C}"
+                          LINKER_LANGUAGE C)
 						
 						
 	TARGET_INCLUDE_DIRECTORIES(lib${ARITH_PREFIX}mumps PUBLIC
@@ -612,12 +588,30 @@ IF (BUILD_SHARED_LIBS)
 								${LIBSEQ_INCLUDE_DIRS}
 								${MUMPS_INCLUDE_DIRS}
 								)
-ENDIF ()
+ELSE()
+	# Arithmetic-specific MUMPS library    
+	ADD_LIBRARY(lib${ARITH_PREFIX}mumps STATIC
+							"${MUMPS_COMMON_OTHER_HEAD}" # not sure IF needed
+						"${${ARITH_PREFIX}MUMPS_SRC}"
+						"${${ARITH_PREFIX}MUMPS_OTHER_SRC}")
+	
+	TARGET_INCLUDE_DIRECTORIES(lib${ARITH_PREFIX}mumps PUBLIC
+							${MUMPS_INCLUDE_DIRS}
+							${LIBSEQ_INCLUDE_DIRS}) #aka INCSEQ
+                            
+	SET_TARGET_PROPERTIES(lib${ARITH_PREFIX}mumps PROPERTIES
+                          COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_FORTRAN} ${ORDERINGS_COMPILER_FLAGS_FORTRAN}"
+                          LINKER_LANGUAGE FORTRAN)
+                            
+	TARGET_LINK_LIBRARIES(lib${ARITH_PREFIX}mumps
+							libmumps_common
+							libpord)
+ENDIF()
 
 
 ############### Examples ###############
 IF(BUILD_EXAMPLES)
-
+    # simpletest example
 	ADD_EXECUTABLE(${ARITH_PREFIX}simpletest
 							examples/${ARITH_PREFIX}simpletest.F
 							)
@@ -641,12 +635,9 @@ IF(BUILD_EXAMPLES)
 	ELSE ()
 		
 		TARGET_LINK_LIBRARIES(${ARITH_PREFIX}simpletest 	
-							debug libmumps_common${CMAKE_DEBUG_POSTFIX}
-							debug lib${ARITH_PREFIX}mumps${CMAKE_DEBUG_POSTFIX}
-							debug libmpiseq${CMAKE_DEBUG_POSTFIX} #aka LIBS
-                            optimized libmumps_common
-							optimized lib${ARITH_PREFIX}mumps
-							optimized libmpiseq #aka LIBS
+							libmumps_common
+							lib${ARITH_PREFIX}mumps
+							libmpiseq #aka LIBS
 							"${ORDERINGS_LIBRARIES}" #aka LORDERINGS
 							"${BLAS_LIBRARIES}" #aka LIBBLAS
 							)  
@@ -665,13 +656,13 @@ IF(BUILD_EXAMPLES)
 	SET_TARGET_PROPERTIES(${ARITH_PREFIX}simpletest PROPERTIES
 							COMPILE_FLAGS "${GENERIC_COMPILER_FLAGS_FORTRAN} ${EXCLUDE_IOMP}"
 							LINKER_LANGUAGE FORTRAN)
-    target_compile_options(${ARITH_PREFIX}simpletest PRIVATE "/MT$<$<CONFIG:Debug>:d>")
 							
 	INSTALL(TARGETS ${ARITH_PREFIX}simpletest
 			RUNTIME DESTINATION examples
 			LIBRARY DESTINATION lib
 			ARCHIVE DESTINATION lib)
-			
+	
+    #c_example		
     IF (ARITH_PREFIX MATCHES "d")
         MESSAGE(STATUS "Added c_example") #TODO
         ADD_EXECUTABLE(c_example
@@ -695,12 +686,9 @@ IF(BUILD_EXAMPLES)
 									)
 		ELSE ()
 			TARGET_LINK_LIBRARIES(c_example 	
-								debug libmumps_common${CMAKE_DEBUG_POSTFIX}
-							    debug lib${ARITH_PREFIX}mumps${CMAKE_DEBUG_POSTFIX}
-							    debug libmpiseq${CMAKE_DEBUG_POSTFIX} #aka LIBS
-                                optimized libmumps_common
-							    optimized lib${ARITH_PREFIX}mumps
-							    optimized libmpiseq #aka LIBS
+								libmumps_common
+								lib${ARITH_PREFIX}mumps
+								libmpiseq #aka LIBS
 								"${ORDERINGS_LIBRARIES}" #aka LORDERINGS
 								"${BLAS_LIBRARIES}" #aka LIBBLAS
 								)  
